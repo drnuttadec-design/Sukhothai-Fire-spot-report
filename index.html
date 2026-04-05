@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sukhothai Fire Alert - ระบบแจ้งจุดเผาไฟและฝุ่นควัน</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- DataTables -->
+    <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- MarkerClusterer -->
+    <script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+
+    <style>
+        :root {
+            --brand-orange: #fd7e14;
+            --brand-orange-hover: #e86b0c;
+            --brand-grey: #343a40;
+            --light-grey: #f8f9fa;
+        }
+        body { font-family: 'Sarabun', sans-serif; background-color: var(--light-grey); }
+        
+        /* Navbar */
+        .navbar-custom { background-color: var(--brand-grey); }
+        .navbar-custom .navbar-brand { color: var(--brand-orange); font-weight: bold; }
+        .navbar-custom .nav-link { color: white; }
+        .navbar-custom .nav-link:hover, .navbar-custom .nav-link.active { color: var(--brand-orange); }
+        
+        /* Buttons */
+        .btn-orange { background-color: var(--brand-orange); color: white; border: none; }
+        .btn-orange:hover { background-color: var(--brand-orange-hover); color: white; }
+        
+        /* View Management */
+        .spa-view { display: none; }
+        .spa-view.active { display: block; }
+
+        /* Map Settings */
+        #map-container { height: calc(100vh - 56px); width: 100%; position: relative; }
+        #main-map { height: 100%; width: 100%; }
+        #form-map { height: 250px; width: 100%; border-radius: 8px; border: 1px solid #ccc; }
+        
+        /* Map Floating Filter */
+        .map-filter-card {
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: white; padding: 15px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 280px;
+        }
+
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 9999;
+            display: none; justify-content: center; align-items: center; flex-direction: column;
+        }
+        
+        .badge-status { font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="spinner-border text-warning" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="mt-3 text-secondary">กำลังประมวลผล...</h5>
+    </div>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#" onclick="switchView('map-view')">
+                <i class="fa-solid fa-fire-flame-curved"></i> SK Fire Alert
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" style="border-color: rgba(255,255,255,0.5);">
+                <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-map-view" onclick="switchView('map-view')"><i class="fa-solid fa-map-location-dot"></i> แผนที่เกิดเหตุ</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-form-view" onclick="switchView('form-view')"><i class="fa-solid fa-bullhorn"></i> แจ้งจุดเผาไฟ</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-admin-view" onclick="switchView('admin-view')"><i class="fa-solid fa-user-shield"></i> เจ้าหน้าที่</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 1. Map View (แผนที่รวม) -->
+    <div id="map-view" class="spa-view active">
+        <div id="map-container">
+            <div id="main-map"></div>
+            <!-- Floating Filter -->
+            <div class="map-filter-card">
+                <h6 class="mb-3"><i class="fa-solid fa-filter"></i> ตัวกรองข้อมูล</h6>
+                <select class="form-select form-select-sm mb-2" id="filter-status" onchange="loadMapMarkers()">
+                    <option value="all">สถานะทั้งหมด</option>
+                    <option value="รอดำเนินการ">รอดำเนินการ</option>
+                    <option value="กำลังตรวจสอบ">กำลังตรวจสอบ</option>
+                    <option value="ระงับเหตุแล้ว">ระงับเหตุแล้ว</option>
+                </select>
+                <select class="form-select form-select-sm mb-2" id="filter-type" onchange="loadMapMarkers()">
+                    <option value="all">ประเภทการเผาทั้งหมด</option>
+                    <option value="เผาตอซังข้าว/พืชเกษตร">เผาตอซังข้าว/พืชเกษตร</option>
+                    <option value="เผาไร่อ้อย">เผาไร่อ้อย</option>
+                    <option value="เผาขยะ/วัชพืชทั่วไป">เผาขยะ/วัชพืชทั่วไป</option>
+                    <option value="เผาป่า">เผาป่า</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Form View (ฟอร์มแจ้งเหตุ) -->
+    <div id="form-view" class="spa-view container mt-4 mb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-dark text-white">
+                        <h5 class="mb-0 text-warning"><i class="fa-solid fa-fire"></i> แจ้งจุดเกิดการเผาไฟ / ฝุ่นควัน</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="reportForm">
+                            <!-- พิกัดและแผนที่ -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">1. ระบุพิกัดสถานที่เกิดเหตุ</label>
+                                <button type="button" class="btn btn-outline-secondary w-100 mb-2" onclick="getLocationGPS()">
+                                    <i class="fa-solid fa-location-crosshairs"></i> ดึงตำแหน่งปัจจุบัน (GPS)
+                                </button>
+                                <div id="form-map"></div>
+                                <small class="text-muted">* สามารถเลื่อนหมุดสีแดงเพื่อระบุตำแหน่งที่แน่นอนได้</small>
+                                <input type="hidden" id="lat" required>
+                                <input type="hidden" id="lng" required>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">ชื่อผู้แจ้ง <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="reporterName" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">เบอร์โทรศัพท์ <span class="text-danger">*</span></label>
+                                    <input type="tel" class="form-control" id="reporterPhone" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">ประเภทการเผา <span class="text-danger">*</span></label>
+                                <select class="form-select" id="fireType" required>
+                                    <option value="" disabled selected>-- เลือกประเภท --</option>
+                                    <option value="เผาตอซังข้าว/พืชเกษตร">เผาตอซังข้าว/พืชเกษตร</option>
+                                    <option value="เผาไร่อ้อย">เผาไร่อ้อย</option>
+                                    <option value="เผาขยะ/วัชพืชทั่วไป">เผาขยะ/วัชพืชทั่วไป</option>
+                                    <option value="เผาป่า">เผาป่า</option>
+                                    <option value="อื่นๆ">อื่นๆ</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">ขนาดการเผาไหม้ <span class="text-danger">*</span></label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="fireSize" id="sizeSmall" value="เล็ก" required>
+                                    <label class="form-check-label" for="sizeSmall">
+                                        <b>เล็ก</b> (กองขยะ, เผาหญ้าข้างทาง ไม่เกิน 1 งาน)
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="fireSize" id="sizeMed" value="กลาง">
+                                    <label class="form-check-label" for="sizeMed">
+                                        <b>กลาง</b> (ไร่นาขนาดเล็ก, พื้นที่ป่าหย่อมๆ 1 งาน ถึง 5 ไร่)
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="fireSize" id="sizeLarge" value="ใหญ่">
+                                    <label class="form-check-label" for="sizeLarge">
+                                        <b>ใหญ่</b> (ไร่อ้อยขนาดใหญ่, เผาป่าลุกลาม มากกว่า 5 ไร่)
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">รายละเอียดเพิ่มเติม</label>
+                                <textarea class="form-control" id="details" rows="2" placeholder="เช่น ใกล้หมู่บ้าน, ควันลอยข้ามถนน..."></textarea>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label">แนบรูปภาพ (สูงสุด 5 รูป)</label>
+                                <input class="form-control" type="file" id="images" accept="image/*" multiple>
+                            </div>
+
+                            <button type="submit" class="btn btn-orange w-100 py-2"><i class="fa-solid fa-paper-plane"></i> ส่งข้อมูลแจ้งเหตุ</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Admin View (ส่วนเจ้าหน้าที่) -->
+    <div id="admin-view" class="spa-view container mt-4 mb-5">
+        
+        <!-- Login Form -->
+        <div id="admin-login-section" class="row justify-content-center mt-5">
+            <div class="col-md-5">
+                <div class="card shadow">
+                    <div class="card-body p-4 text-center">
+                        <i class="fa-solid fa-shield-halved fa-3x mb-3 text-secondary"></i>
+                        <h4 class="mb-4">ระบบจัดการสำหรับเจ้าหน้าที่</h4>
+                        <div class="mb-3">
+                            <input type="text" id="adminUser" class="form-control" placeholder="Username (ทดสอบ: admin)">
+                        </div>
+                        <div class="mb-3">
+                            <input type="password" id="adminPass" class="form-control" placeholder="Password (ทดสอบ: admin123)">
+                        </div>
+                        <button class="btn btn-dark w-100" onclick="doLogin()">เข้าสู่ระบบ</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard -->
+        <div id="admin-dashboard-section" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4><i class="fa-solid fa-list-check text-orange"></i> รายการแจ้งเหตุทั้งหมด</h4>
+                <div>
+                    <button class="btn btn-primary btn-sm me-2" onclick="generateDailySummary()"><i class="fa-solid fa-wand-magic-sparkles"></i> สรุปสถานการณ์ (AI)</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="logout()">ออกจากระบบ</button>
+                </div>
+            </div>
+            
+            <div class="card border-0 shadow-sm">
+                <div class="card-body table-responsive">
+                    <table id="reportsTable" class="table table-hover align-middle w-100">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>เวลา</th>
+                                <th>ประเภท</th>
+                                <th>ขนาด</th>
+                                <th>พิกัด</th>
+                                <th>สถานะ</th>
+                                <th>จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportsTableBody">
+                            <!-- Data populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Update Status Modal -->
+    <div class="modal fade" id="updateModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">อัปเดตสถานะการดำเนินการ</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="updateRowId">
+                    <div class="mb-3">
+                        <label class="form-label">ปรับสถานะ</label>
+                        <select class="form-select" id="updateStatusVal">
+                            <option value="รอดำเนินการ">รอดำเนินการ</option>
+                            <option value="กำลังตรวจสอบ">กำลังตรวจสอบ</option>
+                            <option value="ระงับเหตุแล้ว">ระงับเหตุแล้ว</option>
+                            <option value="ยกเลิก">ยกเลิก/ข้อมูลเท็จ</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">หมายเหตุเจ้าหน้าที่</label>
+                        <textarea class="form-control" id="updateNote" rows="2" placeholder="ระบุผลการตรวจสอบ..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+                    <button type="button" class="btn btn-orange" onclick="saveStatusUpdate()">บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Analysis Modal -->
+    <div class="modal fade" id="aiModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="aiModalTitle"><i class="fa-solid fa-file-waveform"></i> AI สรุปรายงานสถานการณ์ประจำวัน</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="aiLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary mb-2" role="status" style="width: 3rem; height: 3rem;"></div>
+                        <p class="text-muted">กำลังส่งต่อให้ AI วิเคราะห์สถานการณ์และจัดทำรายงานสรุปประจำวัน กรุณารอสักครู่...</p>
+                    </div>
+                    <div id="aiResult" style="display:none;" class="p-4 bg-white rounded border shadow-sm">
+                        <!-- AI Result will be injected here -->
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button class="btn btn-outline-primary" onclick="copyAiResult()"><i class="fa-regular fa-copy"></i> คัดลอกรายงาน</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิดหน้าต่าง</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Bootstrap & DataTables JS -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+
+    <!-- Application Logic -->
+    <script>
+        // ==========================================
+        // 1. Core Config & MOCK Backend for Preview
+        // ==========================================
+        
+        // 🛑 นำ Google Maps API Key ของคุณมาใส่ตรงนี้ 🛑
+        const GOOGLE_MAPS_API_KEY = "AIzaSyCgI3-jrgmbPcNH4EvmQlwvIf38C5Lj58k"; 
+
+        let map, formMap, mainMarkerCluster;
+        let formMarker = null;
+        const sukhothaiCenter = { lat: 17.0055, lng: 99.8262 };
+        let allReportsData = []; // Store fetched data
+
+        // Simulation Data for Local Preview (ถ้าไม่ได้รันบน GAS)
+        const isGAS = typeof google !== 'undefined' && typeof google.script !== 'undefined';
+        
+        function callBackend(action, payload) {
+            return new Promise((resolve, reject) => {
+                if (isGAS) {
+                    // Google Apps Script Environment
+                    google.script.run
+                        .withSuccessHandler(res => resolve(JSON.parse(res)))
+                        .withFailureHandler(err => reject(err))
+                        .doPost({ postData: { contents: JSON.stringify({ action: action, payload: payload }) } });
+                } else {
+                    // Local Simulation for Canvas Preview
+                    setTimeout(() => resolve(mockBackend(action, payload)), 800);
+                }
+            });
+        }
+
+        // Mock Database logic for Preview Environment
+        function mockBackend(action, payload) {
+            let db = JSON.parse(localStorage.getItem('sk_reports_db')) || [];
+            if (action === 'saveReport') {
+                payload.row = db.length + 2;
+                payload.Timestamp = new Date().toLocaleString('th-TH');
+                payload['ชื่อผู้แจ้ง'] = payload.name;
+                payload['ประเภทการเผา'] = payload.type;
+                payload['ขนาดการเผา'] = payload.size;
+                payload['Latitude'] = payload.lat;
+                payload['Longitude'] = payload.lng;
+                payload['สถานะ'] = "รอดำเนินการ";
+                payload['หมายเหตุเจ้าหน้าที่'] = "";
+                db.push(payload);
+                localStorage.setItem('sk_reports_db', JSON.stringify(db));
+                return { status: 'success' };
+            }
+            if (action === 'listReports') {
+                return { status: 'success', data: db };
+            }
+            if (action === 'login') {
+                if (payload.username === 'admin' && payload.password === 'admin123') return { status: 'success', role: 'Admin' };
+                return { status: 'error', message: 'Wrong credentials' };
+            }
+            if (action === 'updateStatus') {
+                let index = db.findIndex(r => r.row === payload.row);
+                if (index > -1) {
+                    db[index]['สถานะ'] = payload.statusText;
+                    db[index]['หมายเหตุเจ้าหน้าที่'] = payload.note;
+                    localStorage.setItem('sk_reports_db', JSON.stringify(db));
+                }
+                return { status: 'success' };
+            }
+            if (action === 'generateSummary') {
+                // จำลองการตอบกลับของ AI หากรันบน Preview Mode
+                return { status: 'success', data: `<h4>📊 ภาพรวมสถานการณ์วันนี้</h4><p>มีเหตุแจ้งเตือนทั้งหมด ${db.length} รายการ ส่วนใหญ่เป็นสถานะรอดำเนินการ</p><ul><li>จุดเฝ้าระวัง: เหตุเผาไร่อ้อยขนาดใหญ่</li></ul>`};
+            }
+        }
+
+        // ==========================================
+        // 2. View Controller (SPA)
+        // ==========================================
+        function switchView(viewId) {
+            document.querySelectorAll('.spa-view').forEach(el => el.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+            
+            // Update Navbar highlighting
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            document.getElementById('nav-' + viewId).classList.add('active');
+
+            if (viewId === 'map-view') {
+                if(!map) initMaps(); 
+                fetchReportsForMap();
+            } else if (viewId === 'form-view') {
+                if(!formMap) initMaps();
+                // Resize fix for hidden map rendering
+                setTimeout(() => { if(formMap) google.maps.event.trigger(formMap, 'resize'); }, 200);
+            } else if (viewId === 'admin-view') {
+                if (sessionStorage.getItem('isAdmin')) showAdminDashboard();
+            }
+        }
+
+        // ==========================================
+        // 3. Google Maps Initialization
+        // ==========================================
+        // Load Google Maps API Dynamically
+        function loadGoogleMaps() {
+            // ฟังก์ชันตรวจสอบและแจ้งเตือนกรณี API Key มีปัญหา หรือติด HTTP Referrers
+            window.gm_authFailure = function() {
+                Swal.fire({
+                    title: 'ข้อจำกัดโดเมนจำลอง (Preview)',
+                    html: `
+                        <p class="small text-danger fw-bold mb-2">RefererNotAllowedMapError</p>
+                        <p class="small text-muted mb-3 text-start">เนื่องจากหน้าต่างทดสอบนี้จะสุ่ม URL ใหม่ทุกครั้งที่รันโค้ด การอนุญาต URL แบบตายตัวจึงไม่ได้ผลครับ</p>
+                        <p class="small mb-1 fw-bold text-dark text-start">วิธีแก้ใน Google Cloud Console:</p>
+                        <ol class="small text-start text-muted mb-2">
+                            <li>เข้าไปที่เมนู <b>APIs & Services</b> > <b>Credentials</b></li>
+                            <li>คลิกที่ API Key ของคุณ</li>
+                            <li>ช่อง HTTP Referrers ให้กรอกค่านี้เพื่อครอบคลุมโดเมนทดสอบทั้งหมด:</li>
+                        </ol>
+                        <input type="text" class="form-control text-center text-primary fw-bold mb-2" value="*.usercontent.goog/*" readonly onclick="this.select();">
+                        <small class="text-danger fw-bold">*หลังกด Save ต้องรอระบบ Google อัปเดตประมาณ 5 นาทีนะครับ*</small>
+                    `,
+                    icon: 'warning'
+                });
+                showMapPlaceholders();
+            };
+
+            let apiKey = GOOGLE_MAPS_API_KEY;
+            
+            if (apiKey && apiKey !== "ใส่_GOOGLE_MAPS_API_KEY_ที่นี่" && apiKey.trim() !== "") {
+                const script = document.createElement('script');
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry&callback=initMaps`;
+                script.async = true;
+                script.defer = true;
+                document.head.appendChild(script);
+            } else {
+                showMapPlaceholders();
+                // แจ้งเตือนเงียบๆ ไม่ต้องใช้ Prompt แล้ว
+                if (!isGAS) {
+                    console.warn("รันบน Local: ไม่ได้ระบุ Google Maps API Key ระบบแผนที่จะถูกปิดใช้งานชั่วคราว");
+                }
+            }
+        }
+
+        function showMapPlaceholders() {
+            const mainMap = document.getElementById('main-map');
+            if(mainMap) mainMap.innerHTML = '<div class="h-100 w-100 d-flex justify-content-center align-items-center bg-light text-muted flex-column text-center p-4"><i class="fa-solid fa-shield-halved fa-3x mb-3 text-warning"></i><h5>แผนที่ถูกจำกัดการเข้าถึง</h5><p class="small">กรุณาเพิ่ม <b>*.usercontent.goog/*</b> ลงใน Google Cloud Console<br>และรอ 5 นาทีเพื่อให้ระบบอัปเดต</p></div>';
+            
+            const formMapDiv = document.getElementById('form-map');
+            if(formMapDiv) formMapDiv.innerHTML = '<div class="h-100 w-100 d-flex justify-content-center align-items-center bg-light text-muted flex-column"><i class="fa-solid fa-location-dot fa-2x mb-2 text-warning"></i><span class="small text-center">แผนที่ถูกจำกัด<br>เนื่องจากสุ่ม URL ทดสอบ</span></div>';
+        }
+
+        function initMaps() {
+            if(typeof google === 'undefined') return;
+
+            // Main Map
+            if(document.getElementById('main-map') && !map) {
+                map = new google.maps.Map(document.getElementById('main-map'), {
+                    center: sukhothaiCenter,
+                    zoom: 10,
+                    mapTypeId: 'terrain',
+                    styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }] // Clean UI
+                });
+
+                // Mock Sukhothai Boundaries (Simple Polygon for Demo)
+                const sukhothaiBounds = new google.maps.Polygon({
+                    paths: [
+                        {lat: 17.8, lng: 99.4}, {lat: 17.8, lng: 99.9}, 
+                        {lat: 16.8, lng: 100.1}, {lat: 16.7, lng: 99.3}
+                    ],
+                    strokeColor: "#343a40", strokeOpacity: 0.5, strokeWeight: 2,
+                    fillColor: "#fd7e14", fillOpacity: 0.1
+                });
+                sukhothaiBounds.setMap(map);
+
+                // Map Click -> Report Here
+                map.addListener("click", (e) => {
+                    const lat = e.latLng.lat();
+                    const lng = e.latLng.lng();
+                    
+                    const infoWindow = new google.maps.InfoWindow({
+                        content: `
+                            <div class="text-center p-2">
+                                <h6>ตำแหน่งนี้มีเหตุเผาไฟ?</h6>
+                                <button class="btn btn-sm btn-orange mt-2" onclick="reportFromMap(${lat}, ${lng})">
+                                    แจ้งเหตุบริเวณนี้
+                                </button>
+                            </div>
+                        `
+                    });
+                    infoWindow.setPosition(e.latLng);
+                    infoWindow.open(map);
+                });
+            }
+
+            // Form Map
+            if(document.getElementById('form-map') && !formMap) {
+                formMap = new google.maps.Map(document.getElementById('form-map'), {
+                    center: sukhothaiCenter,
+                    zoom: 9,
+                    mapTypeControl: false,
+                    streetViewControl: false
+                });
+
+                formMarker = new google.maps.Marker({
+                    position: sukhothaiCenter,
+                    map: formMap,
+                    draggable: true,
+                    animation: google.maps.Animation.DROP,
+                });
+
+                // Update input on drag end
+                formMarker.addListener('dragend', function(e) {
+                    document.getElementById('lat').value = e.latLng.lat().toFixed(6);
+                    document.getElementById('lng').value = e.latLng.lng().toFixed(6);
+                });
+            }
+        }
+
+        function reportFromMap(lat, lng) {
+            switchView('form-view');
+            setTimeout(() => {
+                document.getElementById('lat').value = lat.toFixed(6);
+                document.getElementById('lng').value = lng.toFixed(6);
+                if(formMap && formMarker) {
+                    const pos = new google.maps.LatLng(lat, lng);
+                    formMap.setCenter(pos);
+                    formMap.setZoom(14);
+                    formMarker.setPosition(pos);
+                }
+            }, 300);
+        }
+
+        function getLocationGPS() {
+            if (navigator.geolocation) {
+                Swal.fire({ title: 'กำลังค้นหาตำแหน่ง...', allowOutsideClick: false, didOpen: () => { Swal.showLoading() } });
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        Swal.close();
+                        const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+                        document.getElementById('lat').value = pos.lat.toFixed(6);
+                        document.getElementById('lng').value = pos.lng.toFixed(6);
+
+                        if (formMap && formMarker) {
+                            formMap.setCenter(pos);
+                            formMap.setZoom(15);
+                            formMarker.setPosition(pos);
+                        } else {
+                            // กรณีที่ไม่มี API Key ระบบยังสามารถรับค่า GPS เข้าฟอร์มได้
+                            Swal.fire('ดึงตำแหน่งสำเร็จ', 'ได้รับพิกัด GPS ของคุณแล้ว (แผนที่ถูกปิดใช้งานเนื่องจากไม่มี API Key)', 'info');
+                        }
+                    },
+                    (error) => {
+                        Swal.close();
+                        let errorMsg = 'ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาเลื่อนหมุดบนแผนที่ด้วยตนเอง';
+                        
+                        // วิเคราะห์สาเหตุของ Error
+                        if (error.code === error.PERMISSION_DENIED) {
+                            errorMsg = 'ถูกปฏิเสธการเข้าถึงตำแหน่ง! (หากทดสอบในหน้าต่าง Preview ระบบอาจจะบล็อกอัตโนมัติ กรุณานำไปรันบนเว็บจริง หรือตรวจสอบการตั้งค่าเบราว์เซอร์)';
+                        } else if (error.code === error.POSITION_UNAVAILABLE) {
+                            errorMsg = 'สัญญาณ GPS ขัดข้อง หรืออุปกรณ์ไม่รองรับในขณะนี้';
+                        } else if (error.code === error.TIMEOUT) {
+                            errorMsg = 'หมดเวลาในการค้นหาตำแหน่ง (Timeout) สัญญาณอาจจะอ่อนเกินไป';
+                        }
+                        
+                        Swal.fire('ข้อผิดพลาด', errorMsg, 'error');
+                    },
+                    {
+                        enableHighAccuracy: true, // ร้องขอความแม่นยำสูง (GPS จริง ไม่ใช่แค่ IP)
+                        timeout: 10000,           // รอสูงสุด 10 วินาที
+                        maximumAge: 0             // ไม่เอาค่าแคชเก่า
+                    }
+                );
+            } else {
+                Swal.fire('ข้อผิดพลาด', 'เบราว์เซอร์ของคุณไม่รองรับการดึงตำแหน่ง GPS', 'error');
+            }
+        }
+
+        // ==========================================
+        // 4. Map Marker Logic & Filter
+        // ==========================================
+        let mapMarkers = [];
+        
+        async function fetchReportsForMap() {
+            showLoading(true);
+            try {
+                const res = await callBackend('listReports', {});
+                if(res.status === 'success') {
+                    allReportsData = res.data;
+                    loadMapMarkers();
+                }
+            } catch (e) { console.error(e); }
+            showLoading(false);
+        }
+
+        function loadMapMarkers() {
+            if(typeof google === 'undefined' || !map) return;
+            
+            // Clear existing
+            mapMarkers.forEach(m => m.setMap(null));
+            mapMarkers = [];
+            if(mainMarkerCluster) mainMarkerCluster.clearMarkers();
+
+            const statusFilter = document.getElementById('filter-status').value;
+            const typeFilter = document.getElementById('filter-type').value;
+
+            const filteredData = allReportsData.filter(item => {
+                let matchStatus = statusFilter === 'all' || item['สถานะ'] === statusFilter;
+                let matchType = typeFilter === 'all' || item['ประเภทการเผา'] === typeFilter;
+                return matchStatus && matchType;
+            });
+
+            filteredData.forEach(item => {
+                if(!item.Latitude || !item.Longitude) return;
+                
+                // Color coding based on status
+                let iconColor = "http://maps.google.com/mapfiles/ms/icons/orange-dot.png"; // Default warning
+                if(item['สถานะ'] === 'กำลังตรวจสอบ') iconColor = "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
+                if(item['สถานะ'] === 'ระงับเหตุแล้ว') iconColor = "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
+                if(item['สถานะ'] === 'ยกเลิก') iconColor = "http://maps.google.com/mapfiles/ms/icons/purple-dot.png";
+
+                const marker = new google.maps.Marker({
+                    position: { lat: parseFloat(item.Latitude), lng: parseFloat(item.Longitude) },
+                    map: map,
+                    icon: iconColor,
+                    title: item['ประเภทการเผา']
+                });
+
+                const infoWin = new google.maps.InfoWindow({
+                    content: `
+                        <div style="min-width: 200px;">
+                            <h6 class="text-orange mb-1">${item['ประเภทการเผา']}</h6>
+                            <p class="mb-1 text-muted small"><i class="fa-regular fa-clock"></i> ${item.Timestamp || ''}</p>
+                            <hr class="my-1">
+                            <p class="mb-1"><b>ขนาด:</b> ${item['ขนาดการเผา']}</p>
+                            <p class="mb-1"><b>สถานะ:</b> ${getStatusBadge(item['สถานะ'])}</p>
+                            <p class="mb-1"><b>รายละเอียด:</b> ${item['รายละเอียด'] || '-'}</p>
+                        </div>
+                    `
+                });
+
+                marker.addListener("click", () => { infoWin.open(map, marker); });
+                mapMarkers.push(marker);
+            });
+
+            // Add Clusterer
+            if (typeof markerClusterer !== 'undefined') {
+                mainMarkerCluster = new markerClusterer.MarkerClusterer({ map, markers: mapMarkers });
+            }
+        }
+
+        // ==========================================
+        // 5. Form Submit Logic
+        // ==========================================
+        document.getElementById('reportForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const lat = document.getElementById('lat').value;
+            const lng = document.getElementById('lng').value;
+            
+            if(!lat || !lng) {
+                Swal.fire('แจ้งเตือน', 'กรุณาระบุพิกัดสถานที่เกิดเหตุ โดยการกดปุ่มดึงตำแหน่ง GPS', 'warning');
+                return;
+            }
+
+            const files = document.getElementById('images').files;
+            if(files.length > 5) {
+                Swal.fire('แจ้งเตือน', 'แนบรูปภาพได้สูงสุด 5 รูปเท่านั้น', 'warning');
+                return;
+            }
+
+            showLoading(true);
+            
+            try {
+                // Convert images to Base64
+                let base64Images = [];
+                for(let i=0; i<files.length; i++) {
+                    const base64 = await readFileAsBase64(files[i]);
+                    base64Images.push({ name: files[i].name, mimeType: files[i].type, base64: base64 });
+                }
+
+                const payload = {
+                    name: document.getElementById('reporterName').value,
+                    phone: document.getElementById('reporterPhone').value,
+                    type: document.getElementById('fireType').value,
+                    size: document.querySelector('input[name="fireSize"]:checked').value,
+                    details: document.getElementById('details').value,
+                    lat: lat,
+                    lng: lng,
+                    images: base64Images
+                };
+
+                const res = await callBackend('saveReport', payload);
+                showLoading(false);
+                
+                if(res.status === 'success') {
+                    Swal.fire('สำเร็จ!', 'ส่งข้อมูลแจ้งเหตุเรียบร้อยแล้ว ขอบคุณที่ร่วมดูแลเมืองของเรา', 'success')
+                    .then(() => {
+                        document.getElementById('reportForm').reset();
+                        switchView('map-view');
+                    });
+                } else {
+                    Swal.fire('ผิดพลาด', 'เกิดข้อผิดพลาดในการส่งข้อมูล: ' + res.message, 'error');
+                }
+            } catch (err) {
+                showLoading(false);
+                Swal.fire('ผิดพลาด', 'การเชื่อมต่อขัดข้อง', 'error');
+            }
+        });
+
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // ==========================================
+        // 6. Admin Logic
+        // ==========================================
+        let dataTable;
+
+        async function doLogin() {
+            const user = document.getElementById('adminUser').value;
+            const pass = document.getElementById('adminPass').value;
+            if(!user || !pass) return;
+
+            showLoading(true);
+            const res = await callBackend('login', { username: user, password: pass });
+            showLoading(false);
+
+            if(res.status === 'success') {
+                sessionStorage.setItem('isAdmin', 'true');
+                showAdminDashboard();
+            } else {
+                Swal.fire('เข้าสู่ระบบล้มเหลว', res.message, 'error');
+            }
+        }
+
+        function logout() {
+            sessionStorage.removeItem('isAdmin');
+            document.getElementById('admin-login-section').style.display = 'flex';
+            document.getElementById('admin-dashboard-section').style.display = 'none';
+        }
+
+        async function showAdminDashboard() {
+            document.getElementById('admin-login-section').style.display = 'none';
+            document.getElementById('admin-dashboard-section').style.display = 'block';
+            
+            showLoading(true);
+            const res = await callBackend('listReports', {});
+            showLoading(false);
+
+            if(res.status === 'success') {
+                allReportsData = res.data; // อัปเดตข้อมูลล่าสุดสำหรับใช้กับ AI
+                renderAdminTable(res.data);
+            }
+        }
+
+        function renderAdminTable(data) {
+            if(dataTable) dataTable.destroy();
+            const tbody = document.getElementById('reportsTableBody');
+            tbody.innerHTML = '';
+
+            data.forEach(item => {
+                let statusBadge = getStatusBadge(item['สถานะ']);
+                let actionBtn = `<button class="btn btn-sm btn-outline-dark w-100" onclick="openUpdateModal(${item.row}, '${item['สถานะ']}', '${item['หมายเหตุเจ้าหน้าที่'] || ''}')"><i class="fa-solid fa-pen-to-square"></i> อัปเดต</button>`;
+                
+                let linkMap = `<a href="https://maps.google.com/?q=${item.Latitude},${item.Longitude}" target="_blank" class="text-decoration-none text-orange"><i class="fa-solid fa-location-dot"></i> ดูแผนที่</a>`;
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="small">${item.Timestamp}</td>
+                        <td>${item['ประเภทการเผา']}</td>
+                        <td>${item['ขนาดการเผา']}</td>
+                        <td class="small">${linkMap}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <div class="d-flex flex-column" style="max-width: 100px;">
+                                ${actionBtn}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            dataTable = $('#reportsTable').DataTable({
+                language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/th.json' },
+                order: [[0, "desc"]]
+            });
+        }
+
+        function getStatusBadge(status) {
+            switch(status) {
+                case 'รอดำเนินการ': return '<span class="badge bg-danger badge-status">รอดำเนินการ</span>';
+                case 'กำลังตรวจสอบ': return '<span class="badge bg-warning text-dark badge-status">กำลังตรวจสอบ</span>';
+                case 'ระงับเหตุแล้ว': return '<span class="badge bg-success badge-status">ระงับเหตุแล้ว</span>';
+                case 'ยกเลิก': return '<span class="badge bg-secondary badge-status">ยกเลิก</span>';
+                default: return `<span class="badge bg-secondary badge-status">${status}</span>`;
+            }
+        }
+
+        function openUpdateModal(rowId, currentStatus, currentNote) {
+            document.getElementById('updateRowId').value = rowId;
+            document.getElementById('updateStatusVal').value = currentStatus || 'รอดำเนินการ';
+            document.getElementById('updateNote').value = currentNote !== 'undefined' ? currentNote : '';
+            new bootstrap.Modal(document.getElementById('updateModal')).show();
+        }
+
+        async function saveStatusUpdate() {
+            const rowId = document.getElementById('updateRowId').value;
+            const status = document.getElementById('updateStatusVal').value;
+            const note = document.getElementById('updateNote').value;
+
+            bootstrap.Modal.getInstance(document.getElementById('updateModal')).hide();
+            showLoading(true);
+            
+            const res = await callBackend('updateStatus', { row: parseInt(rowId), statusText: status, note: note });
+            showLoading(false);
+
+            if(res.status === 'success') {
+                Swal.fire({ title: 'สำเร็จ', text: 'อัปเดตสถานะเรียบร้อย', icon: 'success', timer: 1500, showConfirmButton: false });
+                showAdminDashboard(); // Refresh table
+                fetchReportsForMap(); // Refresh map data in background
+            }
+        }
+
+        // ==========================================
+        // Gemini API Integration (เรียกผ่าน Backend)
+        // ==========================================
+
+        async function generateDailySummary() {
+            // เปิดหน้าต่าง Modal แสดงว่ากำลังโหลด
+            const aiModal = new bootstrap.Modal(document.getElementById('aiModal'));
+            document.getElementById('aiLoading').style.display = 'block';
+            document.getElementById('aiResult').style.display = 'none';
+            aiModal.show();
+
+            try {
+                // เรียกให้ Backend ของ GAS ยิง API ไปหา Gemini
+                const res = await callBackend('generateSummary', {});
+
+                document.getElementById('aiLoading').style.display = 'none';
+
+                if (res.status === 'success') {
+                    document.getElementById('aiResult').innerHTML = res.data;
+                    document.getElementById('aiResult').style.display = 'block';
+                } else {
+                    document.getElementById('aiResult').innerHTML = `<div class="alert alert-danger"><i class="fa-solid fa-circle-exclamation"></i> ข้อผิดพลาดจากเซิร์ฟเวอร์: ${res.message}</div>`;
+                    document.getElementById('aiResult').style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error("Backend Error:", error);
+                document.getElementById('aiLoading').style.display = 'none';
+                document.getElementById('aiResult').innerHTML = `<div class="alert alert-danger">เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง</div>`;
+                document.getElementById('aiResult').style.display = 'block';
+            }
+        }
+
+        function copyAiResult() {
+            const textToCopy = document.getElementById('aiResult').innerText;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                Swal.fire({ icon: 'success', title: 'คัดลอกเรียบร้อย', text: 'นำรายงานไปวางใน Line หรือรายงานอื่นได้เลย', timer: 1500, showConfirmButton: false });
+            }).catch(err => {
+                // Fallback for older browsers
+                document.execCommand('copy');
+                Swal.fire({ icon: 'success', title: 'คัดลอกเรียบร้อย', showConfirmButton: false, timer: 1000 });
+            });
+        }
+
+        // ==========================================
+        // 7. Utils
+        // ==========================================
+        function showLoading(show) {
+            document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+        }
+
+        // Initialize App
+        window.onload = () => {
+            loadGoogleMaps();
+            // Start at Map view
+            switchView('map-view');
+        };
+
+    </script>
+</body>
+</html>
