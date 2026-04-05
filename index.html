@@ -382,6 +382,10 @@
         // 🛑 นำ Google Maps API Key ของคุณมาใส่ตรงนี้ 🛑
         const GOOGLE_MAPS_API_KEY = "AIzaSyCgI3-jrgmbPcNH4EvmQlwvIf38C5Lj58k"; 
 
+        // 🌐 นำ Web App URL ของ Google Apps Script มาใส่ตรงนี้ 🌐
+        // (ลิงก์ที่ได้จากการ Deploy จะต้องลงท้ายด้วย /exec)
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx3jWxcVpWplQlgfLNGonK08SS6t9E7pt0ric1An5sYgqJdNFzFtLJ-F_FHI_vHRDDP/exec";
+
         let map, formMap, mainMarkerCluster;
         let formMarker = null;
         const sukhothaiCenter = { lat: 17.0055, lng: 99.8262 };
@@ -391,15 +395,30 @@
         const isGAS = typeof google !== 'undefined' && typeof google.script !== 'undefined';
         
         function callBackend(action, payload) {
-            return new Promise((resolve, reject) => {
+            return new Promise(async (resolve, reject) => {
                 if (isGAS) {
-                    // Google Apps Script Environment
+                    // ทำงานเมื่อรันบนระบบของ Google โดยตรง
                     google.script.run
                         .withSuccessHandler(res => resolve(JSON.parse(res)))
                         .withFailureHandler(err => reject(err))
                         .doPost({ postData: { contents: JSON.stringify({ action: action, payload: payload }) } });
+                } else if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "ใส่_URL_ของ_Google_Apps_Script_ที่นี่") {
+                    // ทำงานเมื่อรันบน GitHub Pages (เชื่อมต่อข้ามเซิร์ฟเวอร์ด้วย Fetch API)
+                    try {
+                        const response = await fetch(GAS_WEB_APP_URL, {
+                            method: 'POST',
+                            // ใช้ text/plain แทน application/json เพื่อเลี่ยงการถูกบล็อก CORS จากเบราว์เซอร์
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: JSON.stringify({ action: action, payload: payload })
+                        });
+                        const data = await response.json();
+                        resolve(data);
+                    } catch (error) {
+                        console.error('Fetch Error:', error);
+                        reject(error);
+                    }
                 } else {
-                    // Local Simulation for Canvas Preview
+                    // ทำงานเมื่อทดสอบบนคอมพิวเตอร์และยังไม่ได้ใส่ URL (Mock Database)
                     setTimeout(() => resolve(mockBackend(action, payload)), 800);
                 }
             });
@@ -412,6 +431,7 @@
 
             if (action === 'saveReport') {
                 payload.row = db.length + 2;
+                payload.rawTimestamp = new Date().getTime(); // เพิ่มเวลาดิบสำหรับทดสอบคำนวณสี
                 payload.Timestamp = new Date().toLocaleString('th-TH');
                 payload['ชื่อผู้แจ้ง'] = payload.name;
                 payload['ประเภทการเผา'] = payload.type;
@@ -672,6 +692,7 @@
 
             const statusFilter = document.getElementById('filter-status').value;
             const typeFilter = document.getElementById('filter-type').value;
+            const now = new Date().getTime(); // เวลาปัจจุบัน
 
             const filteredData = allReportsData.filter(item => {
                 let matchStatus = statusFilter === 'all' || item['สถานะ'] === statusFilter;
@@ -682,23 +703,45 @@
             filteredData.forEach(item => {
                 if(!item.Latitude || !item.Longitude) return;
                 
-                let iconColor = "http://maps.google.com/mapfiles/ms/icons/orange-dot.png";
-                if(item['สถานะ'] === 'กำลังตรวจสอบ') iconColor = "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
-                if(item['สถานะ'] === 'ระงับเหตุแล้ว') iconColor = "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
-                if(item['สถานะ'] === 'ยกเลิก') iconColor = "http://maps.google.com/mapfiles/ms/icons/purple-dot.png";
+                // คำนวณเวลาที่ผ่านไป (หน่วยเป็นชั่วโมง)
+                let diffHours = 0;
+                if (item.rawTimestamp) {
+                    diffHours = (now - item.rawTimestamp) / (1000 * 60 * 60);
+                }
+
+                // กำหนดสีตามเงื่อนไขเวลาที่ผ่านไป
+                let markerColor = "#dc3545"; // สีแดง (0 - 24 ชม.)
+                if (diffHours >= 72) {
+                    markerColor = "#6c757d"; // สีเทา (มากกว่า 72 ชม.)
+                } else if (diffHours >= 48) {
+                    markerColor = "#ffc107"; // สีเหลือง (48 - 72 ชม.)
+                } else if (diffHours >= 24) {
+                    markerColor = "#fd7e14"; // สีส้ม (24 - 48 ชม.)
+                }
+
+                // สร้าง Marker วงกลมแบบกำหนดสีได้เอง
+                const customIcon = {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    fillColor: markerColor,
+                    fillOpacity: 0.9,
+                    strokeColor: '#ffffff',
+                    strokeWeight: 2,
+                    scale: 10
+                };
 
                 const marker = new google.maps.Marker({
                     position: { lat: parseFloat(item.Latitude), lng: parseFloat(item.Longitude) },
                     map: map,
-                    icon: iconColor,
+                    icon: customIcon,
                     title: item['ประเภทการเผา']
                 });
 
                 const infoWin = new google.maps.InfoWindow({
                     content: `
                         <div style="min-width: 200px;">
-                            <h6 class="text-orange mb-1">${item['ประเภทการเผา']}</h6>
+                            <h6 class="mb-1" style="color: ${markerColor} !important;">${item['ประเภทการเผา']}</h6>
                             <p class="mb-1 text-muted small"><i class="fa-regular fa-clock"></i> ${item.Timestamp || ''}</p>
+                            <p class="mb-1 text-muted small"><i class="fa-solid fa-stopwatch"></i> ผ่านไปแล้ว: ${Math.floor(diffHours)} ชม.</p>
                             <hr class="my-1">
                             <p class="mb-1"><b>ขนาด:</b> ${item['ขนาดการเผา']}</p>
                             <p class="mb-1"><b>สถานะ:</b> ${getStatusBadge(item['สถานะ'])}</p>
