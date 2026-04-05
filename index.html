@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sukhothai Fire Alert - ระบบแจ้งจุดเผาไฟและฝุ่นควัน</title>
     
     <!-- Bootstrap 5 CSS -->
@@ -115,11 +115,30 @@
                     <option value="เผาป่า">เผาป่า</option>
                 </select>
             </div>
+            
+            <!-- Warning Banner on Map -->
+            <div class="position-absolute bottom-0 start-50 translate-middle-x w-100 p-2" style="z-index: 10; max-width: 600px;">
+                <div class="alert alert-danger shadow text-center mb-2 py-2" role="alert" style="background-color: rgba(248, 215, 218, 0.95); border: 1px solid #f5c2c7;">
+                    <span class="fw-bold"><i class="fa-solid fa-triangle-exclamation"></i> พบไฟป่า หรือการลักลอบเผา โทร 1362 หรือ 1784 ตลอด 24 ชม.</span><br>
+                    <small class="fw-bold text-danger">หยุดเผา ลดฝุ่น PM2.5 เพื่อลมหายใจของคนสุโขทัย</small>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- 2. Form View (ฟอร์มแจ้งเหตุ) -->
     <div id="form-view" class="spa-view container mt-4 mb-5">
+        <!-- Warning Banner -->
+        <div class="row justify-content-center mb-3">
+            <div class="col-md-8">
+                <div class="alert alert-danger shadow-sm text-center" role="alert">
+                    <h6 class="alert-heading fw-bold mb-1"><i class="fa-solid fa-triangle-exclamation"></i> หากพบเห็นไฟป่า หรือการลักลอบเผา</h6>
+                    <p class="mb-1">โทรแจ้ง <strong>1362</strong> หรือ <strong>1784</strong> ตลอด 24 ชั่วโมง</p>
+                    <p class="mb-0 small fw-bold text-danger">หยุดเผา ลดฝุ่น PM2.5 เพื่อลมหายใจของคนสุโขทัย</p>
+                </div>
+            </div>
+        </div>
+
         <div class="row justify-content-center">
             <div class="col-md-8">
                 <div class="card shadow-sm border-0">
@@ -214,10 +233,10 @@
                         <i class="fa-solid fa-shield-halved fa-3x mb-3 text-secondary"></i>
                         <h4 class="mb-4">ระบบจัดการสำหรับเจ้าหน้าที่</h4>
                         <div class="mb-3">
-                            <input type="text" id="adminUser" class="form-control" placeholder="Username (ทดสอบ: admin)">
+                            <input type="text" id="adminUser" class="form-control" placeholder="Username">
                         </div>
                         <div class="mb-3">
-                            <input type="password" id="adminPass" class="form-control" placeholder="Password (ทดสอบ: admin123)">
+                            <input type="password" id="adminPass" class="form-control" placeholder="Password">
                         </div>
                         <button class="btn btn-dark w-100" onclick="doLogin()">เข้าสู่ระบบ</button>
                     </div>
@@ -227,11 +246,12 @@
 
         <!-- Dashboard -->
         <div id="admin-dashboard-section" style="display:none;">
-            <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
                 <h4><i class="fa-solid fa-list-check text-orange"></i> รายการแจ้งเหตุทั้งหมด</h4>
                 <div>
-                    <button class="btn btn-primary btn-sm me-2" onclick="generateDailySummary()"><i class="fa-solid fa-wand-magic-sparkles"></i> สรุปสถานการณ์ (AI)</button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="logout()">ออกจากระบบ</button>
+                    <button class="btn btn-warning btn-sm me-1 mb-1" onclick="promptChangePassword()"><i class="fa-solid fa-key"></i> เปลี่ยนรหัส</button>
+                    <button class="btn btn-primary btn-sm me-1 mb-1" onclick="generateDailySummary()"><i class="fa-solid fa-wand-magic-sparkles"></i> สรุป (AI)</button>
+                    <button class="btn btn-outline-danger btn-sm mb-1" onclick="logout()">ออกจากระบบ</button>
                 </div>
             </div>
             
@@ -357,6 +377,8 @@
         // Mock Database logic for Preview Environment
         function mockBackend(action, payload) {
             let db = JSON.parse(localStorage.getItem('sk_reports_db')) || [];
+            let usersDb = JSON.parse(localStorage.getItem('sk_users_db')) || [{ username: 'admin', password: 'admin123', role: 'Admin' }];
+
             if (action === 'saveReport') {
                 payload.row = db.length + 2;
                 payload.Timestamp = new Date().toLocaleString('th-TH');
@@ -375,8 +397,9 @@
                 return { status: 'success', data: db };
             }
             if (action === 'login') {
-                if (payload.username === 'admin' && payload.password === 'admin123') return { status: 'success', role: 'Admin' };
-                return { status: 'error', message: 'Wrong credentials' };
+                let user = usersDb.find(u => u.username === payload.username && u.password === payload.password);
+                if (user) return { status: 'success', role: user.role };
+                return { status: 'error', message: 'Username หรือ Password ไม่ถูกต้อง' };
             }
             if (action === 'updateStatus') {
                 let index = db.findIndex(r => r.row === payload.row);
@@ -387,9 +410,17 @@
                 }
                 return { status: 'success' };
             }
+            if (action === 'changePassword') {
+                let userIndex = usersDb.findIndex(u => u.username === payload.username);
+                if (userIndex > -1) {
+                    usersDb[userIndex].password = payload.newPassword;
+                    localStorage.setItem('sk_users_db', JSON.stringify(usersDb));
+                    return { status: 'success' };
+                }
+                return { status: 'error', message: 'ไม่พบผู้ใช้งานในระบบ' };
+            }
             if (action === 'generateSummary') {
-                // จำลองการตอบกลับของ AI หากรันบน Preview Mode
-                return { status: 'success', data: `<h4>📊 ภาพรวมสถานการณ์วันนี้</h4><p>มีเหตุแจ้งเตือนทั้งหมด ${db.length} รายการ ส่วนใหญ่เป็นสถานะรอดำเนินการ</p><ul><li>จุดเฝ้าระวัง: เหตุเผาไร่อ้อยขนาดใหญ่</li></ul>`};
+                return { status: 'success', data: `<h4>📊 ภาพรวมสถานการณ์วันนี้</h4><p>มีเหตุแจ้งเตือนทั้งหมด ${db.length} รายการ</p>`};
             }
         }
 
@@ -419,9 +450,7 @@
         // ==========================================
         // 3. Google Maps Initialization
         // ==========================================
-        // Load Google Maps API Dynamically
         function loadGoogleMaps() {
-            // ฟังก์ชันตรวจสอบและแจ้งเตือนกรณี API Key มีปัญหา หรือติด HTTP Referrers
             window.gm_authFailure = function() {
                 Swal.fire({
                     title: 'ข้อจำกัดโดเมนจำลอง (Preview)',
@@ -452,10 +481,7 @@
                 document.head.appendChild(script);
             } else {
                 showMapPlaceholders();
-                // แจ้งเตือนเงียบๆ ไม่ต้องใช้ Prompt แล้ว
-                if (!isGAS) {
-                    console.warn("รันบน Local: ไม่ได้ระบุ Google Maps API Key ระบบแผนที่จะถูกปิดใช้งานชั่วคราว");
-                }
+                if (!isGAS) console.warn("รันบน Local: ไม่ได้ระบุ Google Maps API Key ระบบแผนที่จะถูกปิดใช้งานชั่วคราว");
             }
         }
 
@@ -470,27 +496,26 @@
         function initMaps() {
             if(typeof google === 'undefined') return;
 
-            // Main Map
+            // Main Map (เปลี่ยนเป็น Hybrid มุมมองเหมือนจริงตามที่ขอ)
             if(document.getElementById('main-map') && !map) {
                 map = new google.maps.Map(document.getElementById('main-map'), {
                     center: sukhothaiCenter,
                     zoom: 10,
-                    mapTypeId: 'terrain',
-                    styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }] // Clean UI
+                    mapTypeId: 'hybrid', // เปลี่ยนจาก 'terrain' เป็น 'hybrid'
+                    styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }]
                 });
 
-                // Mock Sukhothai Boundaries (Simple Polygon for Demo)
+                // Mock Sukhothai Boundaries (ปรับสีให้เข้ากับภาพดาวเทียม)
                 const sukhothaiBounds = new google.maps.Polygon({
                     paths: [
                         {lat: 17.8, lng: 99.4}, {lat: 17.8, lng: 99.9}, 
                         {lat: 16.8, lng: 100.1}, {lat: 16.7, lng: 99.3}
                     ],
-                    strokeColor: "#343a40", strokeOpacity: 0.5, strokeWeight: 2,
-                    fillColor: "#fd7e14", fillOpacity: 0.1
+                    strokeColor: "#ffffff", strokeOpacity: 0.8, strokeWeight: 2,
+                    fillColor: "#fd7e14", fillOpacity: 0.15
                 });
                 sukhothaiBounds.setMap(map);
 
-                // Map Click -> Report Here
                 map.addListener("click", (e) => {
                     const lat = e.latLng.lat();
                     const lng = e.latLng.lng();
@@ -510,11 +535,12 @@
                 });
             }
 
-            // Form Map
+            // Form Map (เปลี่ยนเป็น Hybrid เช่นกัน)
             if(document.getElementById('form-map') && !formMap) {
                 formMap = new google.maps.Map(document.getElementById('form-map'), {
                     center: sukhothaiCenter,
                     zoom: 9,
+                    mapTypeId: 'hybrid', // เปลี่ยนเป็น 'hybrid'
                     mapTypeControl: false,
                     streetViewControl: false
                 });
@@ -526,7 +552,6 @@
                     animation: google.maps.Animation.DROP,
                 });
 
-                // Update input on drag end
                 formMarker.addListener('dragend', function(e) {
                     document.getElementById('lat').value = e.latLng.lat().toFixed(6);
                     document.getElementById('lng').value = e.latLng.lng().toFixed(6);
@@ -563,15 +588,12 @@
                             formMap.setZoom(15);
                             formMarker.setPosition(pos);
                         } else {
-                            // กรณีที่ไม่มี API Key ระบบยังสามารถรับค่า GPS เข้าฟอร์มได้
                             Swal.fire('ดึงตำแหน่งสำเร็จ', 'ได้รับพิกัด GPS ของคุณแล้ว (แผนที่ถูกปิดใช้งานเนื่องจากไม่มี API Key)', 'info');
                         }
                     },
                     (error) => {
                         Swal.close();
                         let errorMsg = 'ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาเลื่อนหมุดบนแผนที่ด้วยตนเอง';
-                        
-                        // วิเคราะห์สาเหตุของ Error
                         if (error.code === error.PERMISSION_DENIED) {
                             errorMsg = 'ถูกปฏิเสธการเข้าถึงตำแหน่ง! (หากทดสอบในหน้าต่าง Preview ระบบอาจจะบล็อกอัตโนมัติ กรุณานำไปรันบนเว็บจริง หรือตรวจสอบการตั้งค่าเบราว์เซอร์)';
                         } else if (error.code === error.POSITION_UNAVAILABLE) {
@@ -579,14 +601,9 @@
                         } else if (error.code === error.TIMEOUT) {
                             errorMsg = 'หมดเวลาในการค้นหาตำแหน่ง (Timeout) สัญญาณอาจจะอ่อนเกินไป';
                         }
-                        
                         Swal.fire('ข้อผิดพลาด', errorMsg, 'error');
                     },
-                    {
-                        enableHighAccuracy: true, // ร้องขอความแม่นยำสูง (GPS จริง ไม่ใช่แค่ IP)
-                        timeout: 10000,           // รอสูงสุด 10 วินาที
-                        maximumAge: 0             // ไม่เอาค่าแคชเก่า
-                    }
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
             } else {
                 Swal.fire('ข้อผิดพลาด', 'เบราว์เซอร์ของคุณไม่รองรับการดึงตำแหน่ง GPS', 'error');
@@ -613,7 +630,6 @@
         function loadMapMarkers() {
             if(typeof google === 'undefined' || !map) return;
             
-            // Clear existing
             mapMarkers.forEach(m => m.setMap(null));
             mapMarkers = [];
             if(mainMarkerCluster) mainMarkerCluster.clearMarkers();
@@ -630,8 +646,7 @@
             filteredData.forEach(item => {
                 if(!item.Latitude || !item.Longitude) return;
                 
-                // Color coding based on status
-                let iconColor = "http://maps.google.com/mapfiles/ms/icons/orange-dot.png"; // Default warning
+                let iconColor = "http://maps.google.com/mapfiles/ms/icons/orange-dot.png";
                 if(item['สถานะ'] === 'กำลังตรวจสอบ') iconColor = "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
                 if(item['สถานะ'] === 'ระงับเหตุแล้ว') iconColor = "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
                 if(item['สถานะ'] === 'ยกเลิก') iconColor = "http://maps.google.com/mapfiles/ms/icons/purple-dot.png";
@@ -660,7 +675,6 @@
                 mapMarkers.push(marker);
             });
 
-            // Add Clusterer
             if (typeof markerClusterer !== 'undefined') {
                 mainMarkerCluster = new markerClusterer.MarkerClusterer({ map, markers: mapMarkers });
             }
@@ -671,31 +685,24 @@
         // ==========================================
         document.getElementById('reportForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
             const lat = document.getElementById('lat').value;
             const lng = document.getElementById('lng').value;
-            
             if(!lat || !lng) {
                 Swal.fire('แจ้งเตือน', 'กรุณาระบุพิกัดสถานที่เกิดเหตุ โดยการกดปุ่มดึงตำแหน่ง GPS', 'warning');
                 return;
             }
-
             const files = document.getElementById('images').files;
             if(files.length > 5) {
                 Swal.fire('แจ้งเตือน', 'แนบรูปภาพได้สูงสุด 5 รูปเท่านั้น', 'warning');
                 return;
             }
-
             showLoading(true);
-            
             try {
-                // Convert images to Base64
                 let base64Images = [];
                 for(let i=0; i<files.length; i++) {
                     const base64 = await readFileAsBase64(files[i]);
                     base64Images.push({ name: files[i].name, mimeType: files[i].type, base64: base64 });
                 }
-
                 const payload = {
                     name: document.getElementById('reporterName').value,
                     phone: document.getElementById('reporterPhone').value,
@@ -706,10 +713,8 @@
                     lng: lng,
                     images: base64Images
                 };
-
                 const res = await callBackend('saveReport', payload);
                 showLoading(false);
-                
                 if(res.status === 'success') {
                     Swal.fire('สำเร็จ!', 'ส่งข้อมูลแจ้งเหตุเรียบร้อยแล้ว ขอบคุณที่ร่วมดูแลเมืองของเรา', 'success')
                     .then(() => {
@@ -735,9 +740,10 @@
         }
 
         // ==========================================
-        // 6. Admin Logic
+        // 6. Admin Logic & Change Password
         // ==========================================
         let dataTable;
+        let currentAdminUser = '';
 
         async function doLogin() {
             const user = document.getElementById('adminUser').value;
@@ -750,6 +756,7 @@
 
             if(res.status === 'success') {
                 sessionStorage.setItem('isAdmin', 'true');
+                currentAdminUser = user; // เก็บชื่อผู้ใช้ที่กำลังล็อกอินไว้
                 showAdminDashboard();
             } else {
                 Swal.fire('เข้าสู่ระบบล้มเหลว', res.message, 'error');
@@ -758,8 +765,59 @@
 
         function logout() {
             sessionStorage.removeItem('isAdmin');
+            currentAdminUser = '';
+            document.getElementById('adminPass').value = '';
             document.getElementById('admin-login-section').style.display = 'flex';
             document.getElementById('admin-dashboard-section').style.display = 'none';
+        }
+
+        // ฟังก์ชันเปลี่ยนรหัสผ่าน (ใช้ PIN 1207)
+        async function promptChangePassword() {
+            const { value: pin } = await Swal.fire({
+                title: 'ยืนยันสิทธิ์ผู้ดูแลระบบ',
+                input: 'password',
+                inputLabel: 'กรุณากรอก PIN Code 4 หลัก',
+                inputPlaceholder: 'ใส่ PIN Code',
+                showCancelButton: true,
+                confirmButtonColor: '#fd7e14',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonText: 'ยืนยัน'
+            });
+
+            if (pin) {
+                if (pin === '1207') {
+                    const { value: newPassword } = await Swal.fire({
+                        title: 'ตั้งรหัสผ่านใหม่',
+                        input: 'password',
+                        inputLabel: 'กรุณากรอกรหัสผ่านใหม่ที่ต้องการ',
+                        inputPlaceholder: 'รหัสผ่านใหม่',
+                        showCancelButton: true,
+                        confirmButtonColor: '#fd7e14',
+                        cancelButtonText: 'ยกเลิก',
+                        confirmButtonText: 'บันทึกรหัสผ่าน'
+                    });
+
+                    if (newPassword && newPassword.trim() !== "") {
+                        showLoading(true);
+                        // ส่งคำสั่งไปเปลี่ยนรหัสที่หลังบ้าน
+                        const res = await callBackend('changePassword', { 
+                            username: currentAdminUser || 'admin', 
+                            newPassword: newPassword 
+                        });
+                        showLoading(false);
+                        
+                        if (res.status === 'success') {
+                            Swal.fire('สำเร็จ', 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว ครั้งต่อไปกรุณาใช้รหัสผ่านใหม่ในการเข้าสู่ระบบ', 'success');
+                        } else {
+                            Swal.fire('ผิดพลาด', res.message, 'error');
+                        }
+                    } else if (newPassword === "") {
+                        Swal.fire('ผิดพลาด', 'รหัสผ่านไม่สามารถเป็นค่าว่างได้', 'warning');
+                    }
+                } else {
+                    Swal.fire('ปฏิเสธการเข้าถึง', 'PIN Code ไม่ถูกต้อง', 'error');
+                }
+            }
         }
 
         async function showAdminDashboard() {
@@ -771,7 +829,7 @@
             showLoading(false);
 
             if(res.status === 'success') {
-                allReportsData = res.data; // อัปเดตข้อมูลล่าสุดสำหรับใช้กับ AI
+                allReportsData = res.data;
                 renderAdminTable(res.data);
             }
         }
@@ -784,7 +842,6 @@
             data.forEach(item => {
                 let statusBadge = getStatusBadge(item['สถานะ']);
                 let actionBtn = `<button class="btn btn-sm btn-outline-dark w-100" onclick="openUpdateModal(${item.row}, '${item['สถานะ']}', '${item['หมายเหตุเจ้าหน้าที่'] || ''}')"><i class="fa-solid fa-pen-to-square"></i> อัปเดต</button>`;
-                
                 let linkMap = `<a href="https://maps.google.com/?q=${item.Latitude},${item.Longitude}" target="_blank" class="text-decoration-none text-orange"><i class="fa-solid fa-location-dot"></i> ดูแผนที่</a>`;
 
                 tbody.innerHTML += `
@@ -839,38 +896,28 @@
 
             if(res.status === 'success') {
                 Swal.fire({ title: 'สำเร็จ', text: 'อัปเดตสถานะเรียบร้อย', icon: 'success', timer: 1500, showConfirmButton: false });
-                showAdminDashboard(); // Refresh table
-                fetchReportsForMap(); // Refresh map data in background
+                showAdminDashboard();
+                fetchReportsForMap();
             }
         }
 
-        // ==========================================
-        // Gemini API Integration (เรียกผ่าน Backend)
-        // ==========================================
-
         async function generateDailySummary() {
-            // เปิดหน้าต่าง Modal แสดงว่ากำลังโหลด
             const aiModal = new bootstrap.Modal(document.getElementById('aiModal'));
             document.getElementById('aiLoading').style.display = 'block';
             document.getElementById('aiResult').style.display = 'none';
             aiModal.show();
 
             try {
-                // เรียกให้ Backend ของ GAS ยิง API ไปหา Gemini
                 const res = await callBackend('generateSummary', {});
-
                 document.getElementById('aiLoading').style.display = 'none';
-
                 if (res.status === 'success') {
                     document.getElementById('aiResult').innerHTML = res.data;
                     document.getElementById('aiResult').style.display = 'block';
                 } else {
-                    document.getElementById('aiResult').innerHTML = `<div class="alert alert-danger"><i class="fa-solid fa-circle-exclamation"></i> ข้อผิดพลาดจากเซิร์ฟเวอร์: ${res.message}</div>`;
+                    document.getElementById('aiResult').innerHTML = `<div class="alert alert-danger"><i class="fa-solid fa-circle-exclamation"></i> ข้อผิดพลาด: ${res.message}</div>`;
                     document.getElementById('aiResult').style.display = 'block';
                 }
-
             } catch (error) {
-                console.error("Backend Error:", error);
                 document.getElementById('aiLoading').style.display = 'none';
                 document.getElementById('aiResult').innerHTML = `<div class="alert alert-danger">เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง</div>`;
                 document.getElementById('aiResult').style.display = 'block';
@@ -880,9 +927,8 @@
         function copyAiResult() {
             const textToCopy = document.getElementById('aiResult').innerText;
             navigator.clipboard.writeText(textToCopy).then(() => {
-                Swal.fire({ icon: 'success', title: 'คัดลอกเรียบร้อย', text: 'นำรายงานไปวางใน Line หรือรายงานอื่นได้เลย', timer: 1500, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: 'คัดลอกเรียบร้อย', timer: 1500, showConfirmButton: false });
             }).catch(err => {
-                // Fallback for older browsers
                 document.execCommand('copy');
                 Swal.fire({ icon: 'success', title: 'คัดลอกเรียบร้อย', showConfirmButton: false, timer: 1000 });
             });
@@ -895,10 +941,8 @@
             document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
         }
 
-        // Initialize App
         window.onload = () => {
             loadGoogleMaps();
-            // Start at Map view
             switchView('map-view');
         };
 
