@@ -379,35 +379,27 @@
         // 1. Core Config & MOCK Backend for Preview
         // ==========================================
         
-        // 🛑 นำ Google Maps API Key ของคุณมาใส่ตรงนี้ 🛑
         const GOOGLE_MAPS_API_KEY = "AIzaSyCgI3-jrgmbPcNH4EvmQlwvIf38C5Lj58k"; 
-
-        // 🌐 นำ Web App URL ของ Google Apps Script มาใส่ตรงนี้ 🌐
-        // (ลิงก์ที่ได้จากการ Deploy จะต้องลงท้ายด้วย /exec)
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxn8-wde7Nv50S154yEeEzHjAXOm1AC9aWg2SXv91ORSwCOrHwCuGxatK2rhCTkfrbp/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx3jWxcVpWplQlgfLNGonK08SS6t9E7pt0ric1An5sYgqJdNFzFtLJ-F_FHI_vHRDDP/exec";
 
         let map, formMap, mainMarkerCluster;
         let formMarker = null;
         const sukhothaiCenter = { lat: 17.0055, lng: 99.8262 };
-        let allReportsData = []; // Store fetched data
+        let allReportsData = []; 
 
-        // Simulation Data for Local Preview (ถ้าไม่ได้รันบน GAS)
         const isGAS = typeof google !== 'undefined' && typeof google.script !== 'undefined';
         
         function callBackend(action, payload) {
             return new Promise(async (resolve, reject) => {
                 if (isGAS) {
-                    // ทำงานเมื่อรันบนระบบของ Google โดยตรง
                     google.script.run
                         .withSuccessHandler(res => resolve(JSON.parse(res)))
                         .withFailureHandler(err => reject(err))
                         .doPost({ postData: { contents: JSON.stringify({ action: action, payload: payload }) } });
                 } else if (GAS_WEB_APP_URL && GAS_WEB_APP_URL !== "ใส่_URL_ของ_Google_Apps_Script_ที่นี่") {
-                    // ทำงานเมื่อรันบน GitHub Pages (เชื่อมต่อข้ามเซิร์ฟเวอร์ด้วย Fetch API)
                     try {
                         const response = await fetch(GAS_WEB_APP_URL, {
                             method: 'POST',
-                            // ใช้ text/plain แทน application/json เพื่อเลี่ยงการถูกบล็อก CORS จากเบราว์เซอร์
                             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                             body: JSON.stringify({ action: action, payload: payload })
                         });
@@ -418,20 +410,18 @@
                         reject(error);
                     }
                 } else {
-                    // ทำงานเมื่อทดสอบบนคอมพิวเตอร์และยังไม่ได้ใส่ URL (Mock Database)
                     setTimeout(() => resolve(mockBackend(action, payload)), 800);
                 }
             });
         }
 
-        // Mock Database logic for Preview Environment
         function mockBackend(action, payload) {
             let db = JSON.parse(localStorage.getItem('sk_reports_db')) || [];
             let usersDb = JSON.parse(localStorage.getItem('sk_users_db')) || [{ username: 'admin', password: 'admin123', role: 'Admin' }];
 
             if (action === 'saveReport') {
                 payload.row = db.length + 2;
-                payload.rawTimestamp = new Date().getTime(); // เพิ่มเวลาดิบสำหรับทดสอบคำนวณสี
+                payload.rawTimestamp = new Date().getTime(); 
                 payload.Timestamp = new Date().toLocaleString('th-TH');
                 payload['ชื่อผู้แจ้ง'] = payload.name;
                 payload['ประเภทการเผา'] = payload.type;
@@ -482,12 +472,10 @@
             document.querySelectorAll('.spa-view').forEach(el => el.classList.remove('active'));
             document.getElementById(viewId).classList.add('active');
             
-            // Update Navbar highlighting
             document.querySelectorAll('.nav-link, .nav-link-btn').forEach(el => el.classList.remove('active'));
             const activeNav = document.getElementById('nav-' + viewId);
             if(activeNav) activeNav.classList.add('active');
 
-            // ปิด Hamburger menu อัตโนมัติเวลาเปลี่ยนหน้า (สำหรับมือถือ)
             const navbarCollapse = document.getElementById('navbarNav');
             if(navbarCollapse.classList.contains('show')) {
                 new bootstrap.Collapse(navbarCollapse).toggle();
@@ -509,22 +497,7 @@
         // ==========================================
         function loadGoogleMaps() {
             window.gm_authFailure = function() {
-                Swal.fire({
-                    title: 'ข้อจำกัดโดเมนจำลอง (Preview)',
-                    html: `
-                        <p class="small text-danger fw-bold mb-2">RefererNotAllowedMapError</p>
-                        <p class="small text-muted mb-3 text-start">เนื่องจากหน้าต่างทดสอบนี้จะสุ่ม URL ใหม่ทุกครั้งที่รันโค้ด การอนุญาต URL แบบตายตัวจึงไม่ได้ผลครับ</p>
-                        <p class="small mb-1 fw-bold text-dark text-start">วิธีแก้ใน Google Cloud Console:</p>
-                        <ol class="small text-start text-muted mb-2">
-                            <li>เข้าไปที่เมนู <b>APIs & Services</b> > <b>Credentials</b></li>
-                            <li>คลิกที่ API Key ของคุณ</li>
-                            <li>ช่อง HTTP Referrers ให้กรอกค่านี้เพื่อครอบคลุมโดเมนทดสอบทั้งหมด:</li>
-                        </ol>
-                        <input type="text" class="form-control text-center text-primary fw-bold mb-2" value="*.usercontent.goog/*" readonly onclick="this.select();">
-                        <small class="text-danger fw-bold">*หลังกด Save ต้องรอระบบ Google อัปเดตประมาณ 5 นาทีนะครับ*</small>
-                    `,
-                    icon: 'warning'
-                });
+                console.warn("Google Maps Auth Failure");
                 showMapPlaceholders();
             };
 
@@ -538,7 +511,6 @@
                 document.head.appendChild(script);
             } else {
                 showMapPlaceholders();
-                if (!isGAS) console.warn("รันบน Local: ไม่ได้ระบุ Google Maps API Key ระบบแผนที่จะถูกปิดใช้งานชั่วคราว");
             }
         }
 
@@ -553,24 +525,53 @@
         function initMaps() {
             if(typeof google === 'undefined') return;
 
-            // Main Map (Hybrid View)
+            // --- พิกัดขอบเขตจังหวัดสุโขทัย (คร่าวๆ เพื่อวาดเส้นประ) ---
+            const sukhothaiCoords = [
+                {lat: 17.76, lng: 99.45}, {lat: 17.84, lng: 99.70}, {lat: 17.65, lng: 99.85},
+                {lat: 17.40, lng: 99.95}, {lat: 17.15, lng: 100.05}, {lat: 16.95, lng: 100.15},
+                {lat: 16.80, lng: 99.95}, {lat: 16.70, lng: 99.75}, {lat: 16.85, lng: 99.55},
+                {lat: 17.10, lng: 99.35}, {lat: 17.35, lng: 99.30}, {lat: 17.55, lng: 99.40},
+                {lat: 17.76, lng: 99.45} // ปิดลูป
+            ];
+
+            // 1. Main Map (Hybrid View)
             if(document.getElementById('main-map') && !map) {
                 map = new google.maps.Map(document.getElementById('main-map'), {
                     center: sukhothaiCenter,
                     zoom: 10,
                     mapTypeId: 'hybrid',
-                    styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }]
+                    styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
+                    disableDefaultUI: true,
+                    zoomControl: true
                 });
 
-                const sukhothaiBounds = new google.maps.Polygon({
-                    paths: [
-                        {lat: 17.8, lng: 99.4}, {lat: 17.8, lng: 99.9}, 
-                        {lat: 16.8, lng: 100.1}, {lat: 16.7, lng: 99.3}
-                    ],
-                    strokeColor: "#ffffff", strokeOpacity: 0.8, strokeWeight: 2,
-                    fillColor: "#fd7e14", fillOpacity: 0.15
+                // ถมสีด้านในแบบโปร่งใส ไม่มีเส้นขอบ (Polygon)
+                const sukhothaiFill = new google.maps.Polygon({
+                    paths: sukhothaiCoords,
+                    strokeOpacity: 0, // ซ่อนเส้นทึบ
+                    fillColor: "#fd7e14", 
+                    fillOpacity: 0.15,
+                    map: map
                 });
-                sukhothaiBounds.setMap(map);
+
+                // วาดเส้นประรอบนอก (Polyline)
+                const lineSymbol = {
+                    path: 'M 0,-1 0,1',
+                    strokeOpacity: 1,
+                    scale: 3
+                };
+                const sukhothaiBorder = new google.maps.Polyline({
+                    path: sukhothaiCoords,
+                    strokeOpacity: 0,
+                    icons: [{
+                        icon: lineSymbol,
+                        offset: '0',
+                        repeat: '20px'
+                    }],
+                    strokeColor: '#fd7e14', // สีส้มเรืองแสง
+                    strokeWeight: 2,
+                    map: map
+                });
 
                 map.addListener("click", (e) => {
                     const lat = e.latLng.lat();
@@ -589,9 +590,21 @@
                     infoWindow.setPosition(e.latLng);
                     infoWindow.open(map);
                 });
+
+                // 🌟 ฟีเจอร์: ซูมเข้าหาผู้ใช้งานอัตโนมัติเมื่อโหลดแผนที่เสร็จ 🌟
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const userPos = { lat: position.coords.latitude, lng: position.coords.longitude };
+                            map.setCenter(userPos);
+                            map.setZoom(13); // ระดับซูมใกล้ๆ ผู้ใช้งาน
+                        },
+                        () => { console.log("User denied geolocation, keeping default center."); }
+                    );
+                }
             }
 
-            // Form Map (Hybrid View)
+            // 2. Form Map (Hybrid View)
             if(document.getElementById('form-map') && !formMap) {
                 formMap = new google.maps.Map(document.getElementById('form-map'), {
                     center: sukhothaiCenter,
@@ -651,7 +664,7 @@
                         Swal.close();
                         let errorMsg = 'ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาเลื่อนหมุดบนแผนที่ด้วยตนเอง';
                         if (error.code === error.PERMISSION_DENIED) {
-                            errorMsg = 'ถูกปฏิเสธการเข้าถึงตำแหน่ง! (หากทดสอบในหน้าต่าง Preview ระบบอาจจะบล็อกอัตโนมัติ กรุณานำไปรันบนเว็บจริง หรือตรวจสอบการตั้งค่าเบราว์เซอร์)';
+                            errorMsg = 'ถูกปฏิเสธการเข้าถึงตำแหน่ง! กรุณาเปิดการตั้งค่า GPS ในมือถือหรือเบราว์เซอร์ของคุณ';
                         } else if (error.code === error.POSITION_UNAVAILABLE) {
                             errorMsg = 'สัญญาณ GPS ขัดข้อง หรืออุปกรณ์ไม่รองรับในขณะนี้';
                         } else if (error.code === error.TIMEOUT) {
@@ -692,7 +705,7 @@
 
             const statusFilter = document.getElementById('filter-status').value;
             const typeFilter = document.getElementById('filter-type').value;
-            const now = new Date().getTime(); // เวลาปัจจุบัน
+            const now = new Date().getTime(); 
 
             const filteredData = allReportsData.filter(item => {
                 let matchStatus = statusFilter === 'all' || item['สถานะ'] === statusFilter;
@@ -703,23 +716,20 @@
             filteredData.forEach(item => {
                 if(!item.Latitude || !item.Longitude) return;
                 
-                // คำนวณเวลาที่ผ่านไป (หน่วยเป็นชั่วโมง)
                 let diffHours = 0;
                 if (item.rawTimestamp) {
                     diffHours = (now - item.rawTimestamp) / (1000 * 60 * 60);
                 }
 
-                // กำหนดสีตามเงื่อนไขเวลาที่ผ่านไป
-                let markerColor = "#dc3545"; // สีแดง (0 - 24 ชม.)
+                let markerColor = "#dc3545"; 
                 if (diffHours >= 72) {
-                    markerColor = "#6c757d"; // สีเทา (มากกว่า 72 ชม.)
+                    markerColor = "#6c757d"; 
                 } else if (diffHours >= 48) {
-                    markerColor = "#ffc107"; // สีเหลือง (48 - 72 ชม.)
+                    markerColor = "#ffc107"; 
                 } else if (diffHours >= 24) {
-                    markerColor = "#fd7e14"; // สีส้ม (24 - 48 ชม.)
+                    markerColor = "#fd7e14"; 
                 }
 
-                // สร้าง Marker วงกลมแบบกำหนดสีได้เอง
                 const customIcon = {
                     path: google.maps.SymbolPath.CIRCLE,
                     fillColor: markerColor,
